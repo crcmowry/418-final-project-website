@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>15-418 Final Project Proposal</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="text/javascript" id="MathJax-script" async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>15-418/618 Final Project Proposal</h1>
+        </header>
+
+        <section>
+            <h2>Parallelizing Dinic's Max-Flow Algorithm</h2>
+            <p>Connor Mowry (cmowry), Wenqi Deng (wenqid)</p>
+        </section>
+
+        <section>
+            <h2>Summary</h2>
+            <p>We will parallelize Dinic's max-flow algorithm in its BFS and DFS phases using both OpenMP and MPI.</p>
+        </section>
+
+        <section>
+            <h2>Background</h2>
+            <p>Dinic's algorithm is a well-known method for solving the maximum flow problem, similar to Ford-Fulkerson in that it finds the optimal solution using augmenting paths. However, Dinic's approach is more efficient because it uses a two-phase process. First, it performs a breadth-first search (BFS) to construct a layer graph, which organizes vertices based on their distance from the source. Then, it uses a depth-first search (DFS) on this graph to compute a blocking flow---a collection of augmenting paths such that no more flow can be sent along any shortest path in the current layer graph without exceeding the edge capacities.</p>
+            <p>The core advantage of Dinic's algorithm is that the BFS phase ensures only the shortest paths from the source to the sink are explored during the DFS phase. This optimization allows each DFS to run in amortized \(O(n)\) time because each dead-end edge is traversed only once per blocking flow. Aside from these dead-end edges, each DFS only explores \(O(n)\) edges. As a result, this significantly improves the overall efficiency of the algorithm by reducing redundant explorations.</p>
+            <p>Our project focuses on further accelerating Dinic's algorithm by parallelizing two main phases. In the BFS phase, each layer of the graph can be constructed in parallel by exploring all neighboring vertices simultaneously. In the DFS phase for blocking flow computation, multiple potential augmenting paths can be explored in parallel. The challenge in the DFS phase is ensuring that, when a path reaches the sink and updates the capacities of its edges, other paths correctly respect these updated capacities to maintain flow feasibility.</p>
+            <p>We plan to implement Dinic's algorithm using both OpenMP and MPI. In the shared memory model with OpenMP, updating capacities is more straightforward since all threads have access to shared data. However, implementing this in MPI, where processes do not share memory, presents additional challenges in synchronizing capacity updates across distributed processes.</p>
+        </section>
+
+        <section id="challenge">
+            <h2>The Challenge</h2>
+            <p>
+                One of the main challenges of our project stems from the inherent difficulty of parallelizing sequential algorithms like BFS and DFS, where the exploration of future paths depends on the outcomes of previously explored paths. To maximize performance gains, we will need to carefully manage synchronization to minimize contention among threads.
+            </p>
+            <p>
+                Additionally, because the algorithm continually updates edge capacities during the DFS phase, we must derive paths based on the most current state of the graph and promptly terminate searches that reach dead ends. This becomes particularly challenging in the MPI implementation, where efficiently communicating the updated state of the graph across multiple processors is crucial to maintaining consistency.
+            </p>
+            
+            <ul>
+                <li><strong>Workload:</strong> 
+                    The workload involves a series of interdependent tasks with varying memory access patterns, as the graph's capacities are frequently updated. Data locality depends heavily on our implementation and choice of data structures, but is not guaranteed if nodes are accessed in an unpredictable order. Due to these interdependencies, the communication-to-computation ratio can be high, especially when synchronizing shared data between threads or across distributed processors.
+                </li>
+                <li><strong>Constraints:</strong> 
+                    A key constraint in parallelizing Dinic's algorithm is the DFS phase, where it is difficult to predict which paths will successfully augment the flow. This uncertainty often leads to redundant work, as many paths may be explored without contributing to the final flow update. Balancing synchronization to prevent race conditions while optimizing performance is particularly challenging, especially when coordinating across multiple threads or processors.
+                </li>
+            </ul>
+        </section>
+
+        <section id="resources">
+            <h2>Resources</h2>
+            <p>
+                Currently, we do not plan to use any existing codebases for the core implementation of our project. We will consult pseudocode and lecture notes from 15-451 
+                <a href="#ref2">[2]</a>, <a href="#ref3">[3]</a> as the primary guide for implementing the sequential version of Dinic's algorithm, which we will then parallelize. Additionally, we may refer to research papers on parallel flow algorithms for optimization strategies, such as the report by Jonas Hafermas and Zoya Masih 
+                <a href="#ref1">[1]</a>, which discusses techniques for parallelizing the BFS phase using MPI.
+            </p>
+            
+            <p>For testing and benchmarking our implementation, we will use a combination of synthetic and real-world datasets:</p>
+            
+            <ul>
+                <li><strong>Synthetic Graphs:</strong> 
+                    We will generate synthetic graphs using tools like the NetworkX library in Python, which can create various types of graphs such as random Erdős-Rényi graphs, scale-free Barabási-Albert graphs, and grid graphs. Additionally, we will use the GTgraph tool for generating large, sparse graphs optimized for flow network testing.
+                </li>
+                <li><strong>Real-World Datasets:</strong> 
+                    We will use datasets from the Stanford Large Network Dataset Collection (SNAP) and the 10th DIMACS Implementation Challenge on Network Flows. These datasets include real-world graphs, such as road networks, communication networks, and social networks, which will help us evaluate the robustness and performance of our implementation on diverse inputs.
+                </li>
+            </ul>
+        </section>
+
+        <section id="goals-deliverables">
+            <h2>Goals and Deliverables</h2>
+            <p>
+                Our primary goal is to parallelize both the BFS and DFS phases of Dinic's algorithm using OpenMP for shared memory and MPI for distributed memory systems. The project will focus on implementing efficient parallel strategies for each phase, optimizing for both performance and scalability.
+            </p>
+
+            <h3>Planned Achievements</h3>
+            <ul>
+                <li><strong>OpenMP Implementation and Optimization:</strong> 
+                    We aim to complete a parallel version of Dinic's algorithm using OpenMP, including optimizations such as minimizing synchronization overhead and improving data locality. We will evaluate performance improvements on the GHC machines at CMU by scaling the number of threads.
+                </li>
+                <li><strong>MPI Implementation:</strong> 
+                    In addition to OpenMP, we plan to implement Dinic's algorithm using MPI for distributed memory systems. Our goal is to develop a robust and efficient MPI implementation that effectively handles communication between processes while maintaining correctness. We will test this on the PSC machines to evaluate scalability with increasing numbers of nodes.
+                </li>
+                <li><strong>Performance Analysis:</strong> 
+                    We will conduct an in-depth performance analysis of both the OpenMP and MPI implementations. Metrics will include speedup relative to a single-threaded baseline, cache misses, memory bandwidth utilization, and the impact of synchronization overhead. This analysis will help identify bottlenecks and guide further optimizations, as well as trade-offs between shared-memory (OpenMP) and distributed-memory (MPI) models, helping us select the most suitable approach for maximizing performance.
+                </li>
+            </ul>
+
+            <h3>Stretch Goals</h3>
+            <ul>
+                <li><strong>Extensive MPI Optimizations:</strong> 
+                    Beyond a functional MPI implementation, we aim to explore advanced optimizations such as reducing communication overhead, implementing non-blocking communication, and optimizing load balancing to further improve scalability on distributed systems.
+                </li>
+                <li><strong>GPU Implementation:</strong> 
+                    If time permits, we will extend our work to implement Dinic's algorithm on a GPU using CUDA. This will allow us to explore the potential performance benefits of leveraging massively parallel architectures and compare them against our CPU-based implementations.
+                </li>
+            </ul>
+
+            <h3>Demo for Poster Session</h3>
+            <p>For the poster session, we plan to present:</p>
+            <ul>
+                <li><strong>Performance Metrics:</strong> 
+                    We will show detailed performance metrics, including speedup, cache misses, memory bandwidth utilization, and the impact of synchronization across various core counts and node configurations.
+                </li>
+                <li><strong>Live Demo (if feasible):</strong> 
+                    We may provide a real-time demonstration of performance improvements on sample graph inputs, depending on the available setup at the session.
+                </li>
+            </ul>
+
+            <p>
+                By the end of the project, our goal is to demonstrate that parallelizing both phases of Dinic's algorithm can significantly reduce computation time and efficiently scale across both shared-memory and distributed-memory systems.
+            </p>
+        </section>
+
+        <section id="platform-choice">
+            <h2>Platform Choice</h2>
+            <p>
+                For our initial implementation and testing, we will use the GHC machines available at CMU, which provide a shared-memory environment ideal for developing and optimizing our OpenMP implementation. These machines will allow us to experiment with multi-threaded performance and gather detailed metrics such as cache misses, memory bandwidth utilization, and synchronization overhead.
+            </p>
+            <p>
+                Once we have a stable OpenMP version, we will conduct further testing on the Pittsburgh Supercomputing Center (PSC) machines. The PSC systems offer a distributed-memory environment with high-core-count nodes, making them well-suited for evaluating the scalability and performance of our MPI implementation. This setup will enable us to analyze how the algorithm scales with increasing numbers of processors and to optimize inter-process communication.
+            </p>
+            <p>
+                If we meet our stretch goals, we plan to utilize the GPUs available on some of the GHC machines to explore further optimizations using CUDA. This will allow us to compare the performance of our CPU-based parallel implementations with GPU acceleration.
+            </p>
+        </section>
+
+        <section id="schedule">
+            <h2>Schedule</h2>
+            
+            <h3>Week 1 (Nov 10 - Nov 16)</h3>
+            <ul>
+                <li>Implement the sequential version of Dinic's algorithm.
+                    <ul>
+                        <li>Review pseudocode and lecture notes from 15-451 to ensure a thorough understanding.</li>
+                        <li>Implement and test the sequential version to confirm correctness.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Complete a functional sequential implementation that passes initial test cases.</li>
+            </ul>
+            
+            <h3>Week 2 (Nov 17 - Nov 23)</h3>
+            <ul>
+                <li>Begin parallelizing the BFS phase using OpenMP.
+                    <ul>
+                        <li>Identify parallelizable components and add OpenMP directives.</li>
+                        <li>Focus on constructing the layer graph in parallel while minimizing synchronization overhead.</li>
+                        <li>Start analyzing performance on GHC machines for speedup and cache efficiency.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Achieve measurable speedup in the BFS phase compared to the sequential version.</li>
+            </ul>
+            
+            <h3>Week 3 (Nov 24 - Nov 30)</h3>
+            <ul>
+                <li>Parallelize the DFS phase using OpenMP.
+                    <ul>
+                        <li>Implement parallel path exploration for the blocking flow.</li>
+                        <li>Optimize synchronization to reduce contention and improve scalability.</li>
+                        <li>Conduct integrated performance analysis for the complete OpenMP implementation.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone (Nov 27):</strong> Submit the milestone report, showcasing the OpenMP results and highlighting preliminary optimizations.</li>
+            </ul>
+            
+            <h3>Week 4 (Dec 1 - Dec 7)</h3>
+            <ul>
+                <li>Develop and test the MPI implementation.
+                    <ul>
+                        <li>Implement parallelization for both the BFS and DFS phases using MPI.</li>
+                        <li>Address challenges related to inter-process communication and synchronization.</li>
+                        <li>Begin testing on PSC machines to evaluate scalability across multiple nodes.</li>
+                        <li>If time permits, start optimizing communication overhead.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Have a functional MPI implementation with initial scalability results.</li>
+            </ul>
+            
+            <h3>Week 5 (Dec 8 - Dec 15)</h3>
+            <ul>
+                <li>Final optimizations and report preparation.
+                    <ul>
+                        <li>Optimize the MPI implementation further, focusing on reducing communication overhead and improving load balancing.</li>
+                        <li>Conduct a comprehensive performance analysis, measuring metrics such as speedup, cache misses, and memory bandwidth utilization.</li>
+                        <li>Prepare content for the poster session (Dec 9 - Dec 13), including detailed performance results and potential live demos.</li>
+                        <li>If ahead of schedule, start experimenting with GPU optimizations using CUDA.</li>
+                        <li>Write and finalize the project report, incorporating all findings and analysis.</li>
+                    </ul>
+                </li>
+                <li><strong>Final Deadline:</strong> Submit the complete project report by Dec 15.</li>
+            </ul>
+
+            <h3>Stretch Goal (If Time Permits)</h3>
+            <ul>
+                <li><strong>GPU Implementation:</strong> Implement key components of Dinic's algorithm using CUDA on the GHC machines to explore additional performance gains.</li>
+            </ul>
+        </section>
+
+        <section id="references">
+        <h3>References</h3>
+            <ol>
+                <li id="ref1">
+                    Jonas Hafermas and Zoya Masih, 
+                    <a href="https://hps.vi4io.org/_media/teaching/summer_term_2023/pchpc-student/jonas_hafermas_zoya_masih_report.pdf" target="_blank">
+                        Parallel BFS with MPI
+                    </a>
+                </li>
+                <li id="ref2">
+                    Lecture Notes on Network Flow (Part 1), 
+                    <a href="https://www.cs.cmu.edu/~15451-f24/lectures/lecture11-flow1.pdf" target="_blank">
+                        CMU 15-451 Lecture 11
+                    </a>
+                </li>
+                <li id="ref3">
+                    Lecture Notes on Network Flow (Part 2), 
+                    <a href="https://www.cs.cmu.edu/~15451-f24/lectures/lecture12-flow2.pdf" target="_blank">
+                        CMU 15-451 Lecture 12
+                    </a>
+                </li>
+            </ol>
+        </section>
+
+
+        <footer>
+            <p>&copy; 2024 Connor Mowry & Wenqi Deng - 15-418/618 Final Project</p>
+        </footer>
+    </div>
+</body>
+</html>

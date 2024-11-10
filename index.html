@@ -3,71 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>15-418 Final Project - Parallel Optimization</title>
+    <title>15-418 Final Project - Parallelizing Dinic's Algorithm</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <header>
-        <h1>Parallel Optimization Project</h1>
-        <p>By Connor Mowry & Wenqi</p>
-    </header>
+    <div class="container">
+        <header>
+            <h1>15-418/618 Final Project</h1>
+            <p>By Connor Mowry & Wenqi Deng</p>
+        </header>
 
-    <section id="summary">
-        <h2>Project Summary</h2>
-        <p>We are going to implement a parallelized version of Dinic's algorithm for maximum flow, optimizing its performance on a multi-core CPU system using MPI for parallel exploration of augmenting paths.</p>
-    </section>
+        <section id="proposal">
+            <h2>Project Proposal</h2>
+            <p>We are working on parallelizing Dinic's max-flow algorithm using OpenMP and MPI. For detailed information, please refer to our full project proposal:</p>
+            <p><a href="proposal.html">View Full Project Proposal</a></p>
+        </section>
 
-    <section id="background">
-        <h2>Background</h2>
-        <p>Dinic's algorithm is a network flow algorithm with a complexity of \(O(V^2E)\). The main bottleneck is the Depth-First Search (DFS) used to find blocking flows. By parallelizing the DFS phase, we aim to achieve significant speedups.</p>
-    </section>
-
-    <section id="challenge">
-        <h2>The Challenge</h2>
-        <p>Parallelizing DFS in Dinic's algorithm is challenging due to dependencies between nodes and paths in the residual graph. The main difficulty lies in ensuring thread safety and reducing contention during path exploration.</p>
-    </section>
-
-    <section id="resources">
-        <h2>Resources</h2>
-        <ul>
-            <li>Machines: CMU latedays cluster</li>
-            <li>Languages/APIs: C++, MPI</li>
-            <li>Reference: "Network Flows" by Ahuja, Magnanti, and Orlin</li>
-        </ul>
-    </section>
-
-    <section id="goals">
-        <h2>Goals and Deliverables</h2>
-        <h3>Planned Goals</h3>
-        <ul>
-            <li>Implement parallel DFS for Dinic's algorithm using MPI</li>
-            <li>Achieve at least a 4x speedup over the serial implementation on 8-core machines</li>
-        </ul>
-        <h3>Stretch Goals</h3>
-        <ul>
-            <li>Optimize memory access patterns to further enhance performance</li>
-            <li>Implement the solution on GPU for comparison</li>
-        </ul>
-    </section>
-
-    <section id="platform">
-        <h2>Platform Choice</h2>
-        <p>We chose MPI on a multi-core CPU system due to its flexibility in handling parallel tasks. The goal is to efficiently utilize the cores available in the latedays cluster for maximum speedup.</p>
-    </section>
-
-    <section id="schedule">
-        <h2>Schedule</h2>
-        <ul>
-            <li>Week 1: Implement baseline serial version of Dinic's algorithm</li>
-            <li>Week 2: Parallelize DFS phase using MPI</li>
-            <li>Week 3: Optimize communication between processes</li>
-            <li>Week 4: Performance evaluation and fine-tuning</li>
-            <li>Poster Session: Prepare demo and presentation</li>
-        </ul>
-    </section>
-
-    <footer>
-        <p>&copy; 2024 Connor Mowry & Wenqi - 15-418/618 Final Project</p>
-    </footer>
+        <footer>
+            <p>&copy; 2024 Connor Mowry & Wenqi Deng</p>
+        </footer>
+    </div>
 </body>
 </html>
