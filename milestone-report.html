@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milestone Report - Parallelizing Dinic's Algorithm</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>15-418 Final Project Milestone Report</h1>
+            <p>By Connor Mowry (cmowry), Wenqi Deng (wenqid)</p>
+        </header>
+
+        <section id="summary-of-progress">
+            <h2>Summary of Progress</h2>
+            <p>
+                Our project focuses on parallelizing Dinic's max-flow algorithm in its BFS and DFS phases using OpenMP and MPI to enhance performance. Over the past few weeks, we have made significant progress in implementing the sequential and OpenMP versions of parallel Dinic's algorithm and measuring their performance.
+            </p>
+            <p>
+                We started by implementing and testing the sequential version of Dinic's algorithm, establishing a solid foundation for subsequent parallelization. In the first phase of parallelization using OpenMP, we focused on the BFS component, constructing the layer graph in parallel and exploring strategies at different granularities, such as parallelizing by vertex and edge, to balance load and optimize performance.
+            </p>
+            <p>
+                For the DFS phase, where blocking flows are computed, we addressed dependency issues of capacity updates by implementing two approaches: locking edges along paths being explored to prevent conflicts as well as allowing threads to explore freely while only updating back capacities after paths successfully reach the sink.
+            </p>
+            <p>
+                In addition, we have started implementing a basic MPI version to parallelize the BFS phase. In this approach, we divide the graph's vertices across different processors, with each processor exploring the vertices assigned to it. Our next steps will focus on exploring ways to reduce communication overhead and optimize the overall efficiency of the MPI implementation of BFS, and start with the MPI implementation of DFS.
+            </p>
+        </section>
+
+        <section id="attempted-approaches">
+            <h2>Attempted Approaches</h2>
+            <ul>
+                <li>
+                    <strong>Sequential:</strong> Basic implementation of Dinic's algorithm based on pseudocode.
+                </li>
+                <li>
+                    <strong>OpenMP BFS:</strong> We parallelized the for loop in the BFS phase of Dinic's algorithm using OpenMP, incorporating a reduction operation to merge each thread's next frontier to further optimize performance.
+                    <ul>
+                        <li><strong>By vertex:</strong> We parallelized the for loop that iterates through the current level of the graph.</li>
+                        <li><strong>By edge:</strong> To reduce load imbalance from nodes with varying numbers of edges, we attempted fine-grained task parallelism by processing individual edges in parallel.</li>
+                    </ul>
+                    <p>
+                        We observed some speedup of parallelizing the BFS phase when testing on large networks. For most of the test cases, parallelizing by vertex results in better performance compared to parallelizing by edge. This is likely because the overhead of managing numerous small tasks becomes significant when there are a large number of tasks, which can slow down performance in the edge-based approach. However, we did notice that in most of the Erdős–Rényi networks, parallelizing by edge outperforms the by vertex approach. This is potentially due to large numbers of edges attached to small numbers of vertices in this model, causing load imbalance when processors work on different nodes in the by vertex approach.
+                    </p>
+                </li>
+                <li>
+                    <strong>OpenMP DFS:</strong> Parallelizing DFS is more challenging due to increased data dependency across iterations. To address this, we incorporated a lock mechanism to prevent pushing flow through paths where other threads may update the remaining capacity.
+                    <ul>
+                        <li>
+                            <strong>Forward lock:</strong> In forward lock, a process locks the edges it explores as it explores them, releasing all locks once it pushes flow. Other processes cannot explore an edge that is locked by another processor.
+                        </li>
+                        <li>
+                            <strong>Reverse lock:</strong> The reverse lock mechanism is designed to address the situations where processes make no progress because all viable edges are locked by other processes. Once a process reaches the sink, it locks all edges on the path it traversed, redetermines the smallest residual capacity, and pushes that amount of flow. The residual capacities might change between when the path is explored and when the flow is pushed, but the processor may still be able to push some flow on the path as long as no edge became saturated.
+                        </li>
+                    </ul>
+                    <p>
+                        Although the speedup from parallelizing the DFS phase compared to the sequential version was only slight in some test cases, we observed measurable performance improvements when running more threads compared to 1 thread. This could be attributed to the high overhead of managing a large number of locks and situations where some threads make progress that does not contribute meaningfully to the overall solution (one edge in the path later saturated by another process) in the reverse lock approach.
+                    </p>
+                </li>
+                <li>
+                    <strong>MPI BFS:</strong> In MPI, we parallelized BFS by partitioning parts of the adjacency matrix for different processes to handle. We can divide the graph by nodes (1D partition) or both nodes and edges within single nodes (2D partition).
+                    <ul>
+                        <li>
+                            <strong>1D partition:</strong> We parallelized the BFS phase by distributing vertices of graphs across different processes. At each BFS level, processes collaboratively explore the graph by exchanging information about discovered vertices through message passing. Currently, we are handling synchronization using all-gather in which all processes know all nodes in the next level. We are still working on implementing all-to-all or point-to-point communication strategies to reduce communication overhead.
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        </section>
+
+        <section id="benchmarking">
+            <h2>Benchmarking</h2>
+            <p>We measured the computation time for calculating the max flow in networks of varying models and sizes, using both GHC and PSC machines. The time is recorded in milliseconds.</p>
+
+            <h3>On GHC Machines:</h3>
+            <ol>
+                <li>
+                    <strong>Small Erdős–Rényi Graph (n=128, e=15457)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>0.229</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>0.245</td>
+                            <td>0.264</td>
+                            <td>0.334</td>
+                            <td>0.343</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>0.425</td>
+                            <td>0.505</td>
+                            <td>0.529</td>
+                            <td>0.389</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>0.433</td>
+                            <td>0.446</td>
+                            <td>0.464</td>
+                            <td>0.403</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>3.31</td>
+                            <td>2.45</td>
+                            <td>2.05</td>
+                            <td>1.83</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Small Barabási–Albert Graph (n=128, e=1694)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>0.121</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS by vertex</td>
+                            <td>0.161</td>
+                            <td>0.259</td>
+                            <td>0.566</td>
+                            <td>0.804</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS by edge</td>
+                            <td>1.427</td>
+                            <td>1.005</td>
+                            <td>0.729</td>
+                            <td>0.981</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>0.259</td>
+                            <td>0.426</td>
+                            <td>0.327</td>
+                            <td>0.615</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>0.540</td>
+                            <td>0.269</td>
+                            <td>0.302</td>
+                            <td>0.337</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Small Grid Graph (n=121, e=440)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>0.128</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>0.321</td>
+                            <td>0.213</td>
+                            <td>0.201</td>
+                            <td>0.310</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>1.234</td>
+                            <td>0.416</td>
+                            <td>0.379</td>
+                            <td>0.510</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>0.038</td>
+                            <td>0.098</td>
+                            <td>0.144</td>
+                            <td>0.189</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>0.160</td>
+                            <td>0.164</td>
+                            <td>0.252</td>
+                            <td>0.307</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Medium Erdős–Rényi Graph (n=2048, e=3982965)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>66.7</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>68.3</td>
+                            <td>54.2</td>
+                            <td>51.8</td>
+                            <td>50.5</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>124.1</td>
+                            <td>71.2</td>
+                            <td>44.4</td>
+                            <td>30.2</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>162.7</td>
+                            <td>116.2</td>
+                            <td>93.6</td>
+                            <td>83.2</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>1649.2</td>
+                            <td>1460.3</td>
+                            <td>1277.1</td>
+                            <td>1156.3</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Medium Barabási–Albert Graph (n=2048, e=400670)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>8.76</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>5.58</td>
+                            <td>4.63</td>
+                            <td>4.33</td>
+                            <td>4.36</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>84.6</td>
+                            <td>48.3</td>
+                            <td>29.7</td>
+                            <td>20.1</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>12.7</td>
+                            <td>10.3</td>
+                            <td>8.88</td>
+                            <td>8.68</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>72.2</td>
+                            <td>54.1</td>
+                            <td>47.1</td>
+                            <td>43.7</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Medium Grid Graph (n=2025, e=7920)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>1.43</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>0.54</td>
+                            <td>1.28</td>
+                            <td>0.27</td>
+                            <td>1.35</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>149.4</td>
+                            <td>90.4</td>
+                            <td>60.5</td>
+                            <td>44.7</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>0.56</td>
+                            <td>0.69</td>
+                            <td>0.72</td>
+                            <td>0.80</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>2.53</td>
+                            <td>2.93</td>
+                            <td>3.11</td>
+                            <td>3.19</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Large Erdős–Rényi Graph (n=4096, e=15934587)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>228.7</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>236.4</td>
+                            <td>194.4</td>
+                            <td>184.7</td>
+                            <td>179.3</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>387.4</td>
+                            <td>225.0</td>
+                            <td>144.7</td>
+                            <td>101.5</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>592.2</td>
+                            <td>407.1</td>
+                            <td>311.9</td>
+                            <td>276.1</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>7519.04</td>
+                            <td>6589.8</td>
+                            <td>6536.5</td>
+                            <td>6613.1</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Large Barabási–Albert Graph (n=4096, e=1595310)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>19.7</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>19.5</td>
+                            <td>16.7</td>
+                            <td>16.1</td>
+                            <td>16.2</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>234.4</td>
+                            <td>136.8</td>
+                            <td>88.1</td>
+                            <td>61.6</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>46.0</td>
+                            <td>35.9</td>
+                            <td>28.9</td>
+                            <td>28.8</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>251.8</td>
+                            <td>168.2</td>
+                            <td>142.8</td>
+                            <td>132.7</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Large Grid Graph (n=4096, e=16128)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>0.136</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>0.242</td>
+                            <td>0.506</td>
+                            <td>3.91</td>
+                            <td>1.150</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>110.2</td>
+                            <td>60.8</td>
+                            <td>36.4</td>
+                            <td>23.2</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>0.296</td>
+                            <td>0.395</td>
+                            <td>0.403</td>
+                            <td>0.453</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>1.27</td>
+                            <td>0.919</td>
+                            <td>0.877</td>
+                            <td>0.955</td>
+                        </tr>
+                    </table>
+                </li>
+            </ol>
+
+            <h3>On PSC Machines:</h3>
+            <ol>
+                <li>
+                    <strong>Extreme Erdős–Rényi Graph (n=8192, e=63743938)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                            <th>16</th>
+                            <th>32</th>
+                            <th>64</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>1284.5</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>1348.2</td>
+                            <td>931.3</td>
+                            <td>793.8</td>
+                            <td>733.3</td>
+                            <td>793.4</td>
+                            <td>810.5</td>
+                            <td>823.8</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>2025.3</td>
+                            <td>1413.8</td>
+                            <td>1223.9</td>
+                            <td>817.4</td>
+                            <td>879.7</td>
+                            <td>954.8</td>
+                            <td>771.3</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>3535.5</td>
+                            <td>2460.7</td>
+                            <td>1841.3</td>
+                            <td>1573.2</td>
+                            <td>1893.9</td>
+                            <td>1839.9</td>
+                            <td>1791.6</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>47954</td>
+                            <td>34909</td>
+                            <td>31844</td>
+                            <td>27034</td>
+                            <td>25403</td>
+                            <td>86543</td>
+                            <td>86407</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Extreme Barabási–Albert Graph (n=8192, e=6381240)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                            <th>16</th>
+                            <th>32</th>
+                            <th>64</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>160.1</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>158.6</td>
+                            <td>121.5</td>
+                            <td>103.0</td>
+                            <td>100.1</td>
+                            <td>124.4</td>
+                            <td>149.5</td>
+                            <td>151.4</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>1753.4</td>
+                            <td>1383.5</td>
+                            <td>986.8</td>
+                            <td>612.3</td>
+                            <td>591.2</td>
+                            <td>611.8</td>
+                            <td>400.2</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>347.2</td>
+                            <td>270.4</td>
+                            <td>226.3</td>
+                            <td>210.6</td>
+                            <td>259.4</td>
+                            <td>303.2</td>
+                            <td>297.5</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>3247.1</td>
+                            <td>2640.3</td>
+                            <td>2675.7</td>
+                            <td>3345.8</td>
+                            <td>3106.4</td>
+                            <td>5328.0</td>
+                            <td>9336.0</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Extreme Grid Graph (n=8190, e=32398)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                            <th>16</th>
+                            <th>32</th>
+                            <th>64</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>0.453</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>0.735</td>
+                            <td>2.509</td>
+                            <td>2.55</td>
+                            <td>0.828</td>
+                            <td>2.31</td>
+                            <td>8.83</td>
+                            <td>9.27</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>772.3</td>
+                            <td>826.2</td>
+                            <td>494.5</td>
+                            <td>313.2</td>
+                            <td>334.7</td>
+                            <td>339.3</td>
+                            <td>227.5</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>1.62</td>
+                            <td>2.94</td>
+                            <td>3.53</td>
+                            <td>3.77</td>
+                            <td>4.34</td>
+                            <td>5.89</td>
+                            <td>6.78</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>5.83</td>
+                            <td>8.53</td>
+                            <td>10.2</td>
+                            <td>11.2</td>
+                            <td>15.6</td>
+                            <td>16.8</td>
+                            <td>16.7</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Impossible Erdős–Rényi Graph (n=12040, e=99609033)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                            <th>16</th>
+                            <th>32</th>
+                            <th>64</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>1764.9</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>1825.5</td>
+                            <td>1391.2</td>
+                            <td>1194.6</td>
+                            <td>1114.2</td>
+                            <td>1168.2</td>
+                            <td>1204.2</td>
+                            <td>1195.7</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>2546.9</td>
+                            <td>1775.5</td>
+                            <td>1564.7</td>
+                            <td>1060.5</td>
+                            <td>1105.2</td>
+                            <td>1325.7</td>
+                            <td>1124.0</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>5272.2</td>
+                            <td>3586.0</td>
+                            <td>2567.6</td>
+                            <td>2033.0</td>
+                            <td>2214.6</td>
+                            <td>2219.8</td>
+                            <td>2063.5</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>80849</td>
+                            <td>57050</td>
+                            <td>51330</td>
+                            <td>59283.9</td>
+                            <td>42305</td>
+                            <td>121861</td>
+                            <td>143007</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Impossible Barabási–Albert Graph (n=12040, e=9961472)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                            <th>16</th>
+                            <th>32</th>
+                            <th>64</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>250.1</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>241.0</td>
+                            <td>183.3</td>
+                            <td>151.2</td>
+                            <td>149.1</td>
+                            <td>171.5</td>
+                            <td>201.1</td>
+                            <td>200.2</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>2774.0</td>
+                            <td>2371.1</td>
+                            <td>1732.0</td>
+                            <td>934.1</td>
+                            <td>933.0</td>
+                            <td>946.5</td>
+                            <td>626.4</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>574.0</td>
+                            <td>409.0</td>
+                            <td>342.1</td>
+                            <td>309.7</td>
+                            <td>387.1</td>
+                            <td>425.6</td>
+                            <td>451.9</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>5254.4</td>
+                            <td>4784.1</td>
+                            <td>4456.0</td>
+                            <td>4732.6</td>
+                            <td>5173.3</td>
+                            <td>10112</td>
+                            <td>8030.3</td>
+                        </tr>
+                    </table>
+                </li>
+                <li>
+                    <strong>Impossible Grid Graph (n=10201, e=40400)</strong>
+                    <table border="1">
+                        <tr>
+                            <th></th>
+                            <th>1</th>
+                            <th>2</th>
+                            <th>4</th>
+                            <th>8</th>
+                            <th>16</th>
+                            <th>32</th>
+                            <th>64</th>
+                        </tr>
+                        <tr>
+                            <td>Sequential</td>
+                            <td>0.630</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                            <td>NA</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS vertex</td>
+                            <td>0.914</td>
+                            <td>6.58</td>
+                            <td>4.21</td>
+                            <td>4.65</td>
+                            <td>2.57</td>
+                            <td>8.68</td>
+                            <td>5.57</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP BFS edge</td>
+                            <td>1152.7</td>
+                            <td>884.8</td>
+                            <td>853.5</td>
+                            <td>515.0</td>
+                            <td>485.0</td>
+                            <td>498.8</td>
+                            <td>326.3</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS forward lock</td>
+                            <td>2.17</td>
+                            <td>3.97</td>
+                            <td>5.87</td>
+                            <td>6.31</td>
+                            <td>5.79</td>
+                            <td>7.42</td>
+                            <td>8.00</td>
+                        </tr>
+                        <tr>
+                            <td>OpenMP DFS reverse lock</td>
+                            <td>6.80</td>
+                            <td>10.5</td>
+                            <td>15.1</td>
+                            <td>20.0</td>
+                            <td>21.4</td>
+                            <td>21.6</td>
+                            <td>13.45</td>
+                        </tr>
+                    </table>
+                </li>
+            </ol>
+        </section>
+
+        <section id="performance-graphs">
+            <h2>Performance Graphs</h2>
+            <div class="performance-graphs">
+                <img src="images/a2ac2367-e190-46b7-aa84-dd1811eb4072.png" alt="Performance Graph 1">
+                <img src="images/06622e6c-9606-4a97-816f-cde0185b0a22.png" alt="Performance Graph 2">
+                <img src="images/7bd2b10e-96eb-42fe-a017-607a87997a36.png" alt="Performance Graph 3">
+                <img src="images/1d0fd162-63f1-40b6-a4cd-104408fd9bb3.png" alt="Performance Graph 4">
+                <img src="images/36dbf97e-46cd-491e-8932-566f7b4d6c32.png" alt="Performance Graph 5">
+                <img src="images/a2fbc40a-b2af-402e-8d70-e1b696c8ce92.png" alt="Performance Graph 6">
+                <img src="images/48c50ba9-274b-4d87-a249-d8f6c2a2f8c2.png" alt="Performance Graph 7">
+                <img src="images/3bb0abcf-cf25-4d37-bbce-1c3bc8a8a926.png" alt="Performance Graph 8">
+                <img src="images/126df89f-231c-43a7-ade8-4be215f759b0.png" alt="Performance Graph 9">
+                <img src="images/428ee450-c32b-4cdf-ae27-f1940c70d6a3.png" alt="Performance Graph 10">
+                <img src="images/87d2908e-c01a-47c7-8155-d1f0938c2946.png" alt="Performance Graph 11">
+                <img src="images/981ae090-a71a-4c5b-92e9-2924bc197d89.png" alt="Performance Graph 12">
+                <img src="images/786d7c4a-4a00-4cc0-be23-749a6b8e8b85.png" alt="Performance Graph 13">
+                <img src="images/07e94f81-3c66-4f61-a6fe-26a407a479b7.png" alt="Performance Graph 14">
+                <img src="images/11750d84-04f7-4ef4-a895-437475331062.png" alt="Performance Graph 15">
+            </div>
+        </section>
+
+        <style>
+            #performance-graphs {
+                padding: 1rem; /* Ensure padding around the section */
+            }
+
+            .performance-graphs {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1rem; /* Add spacing between images */
+            }
+
+            .performance-graphs img {
+                width: 100%; /* Make images responsive to their container */
+                box-sizing: border-box; /* Include padding and border in width calculation */
+            }
+        </style>
+
+        <section id="performance-analysis">
+            <h2>Performance Analysis</h2>
+            <p>From the benchmarking results, we observed that:</p>
+            <ol>
+                <li>
+                    In large and dense networks with more edges, parallelizing BFS in OpenMP shows measurable performance improvements that increase with the number of threads up to 16. However, as the number of threads exceeds 16, the speedup begins to diminish. This is likely due to the limited number of parallelizable tasks available, causing increased overhead from thread management and synchronization, which reduces the effectiveness of additional threads.
+                </li>
+                <li>
+                    In most of the test cases, parallelizing by vertex results in better performance compared to by edge. However, we did notice that in most of the Erdős–Rényi networks, parallelizing by edge outperforms the by vertex approach. This is potentially due to large numbers of edges attached to small numbers of vertices in this model, causing load imbalance when processors work on different nodes in the by vertex approach.
+                </li>
+                <li>
+                    Although the speedup from parallelizing the DFS phase compared to the sequential version was minimal in some test cases, there are noticeable performance improvements when running with 8 threads versus a single thread in large and dense networks. This could be caused by the high overhead of managing a large number of locks.
+                </li>
+                <li>
+                    For most of the test cases, especially when there is a large number of edges, the reverse lock approach performs worse than the forward lock approach. This might be due to situations where some threads make progress that does not contribute meaningfully to the overall solution. For example, certain threads might explore paths that ultimately do not lead to valid augmenting flows or encounter situations where their updates are later blocked and invalidated by other threads. These unproductive efforts waste computational resources and add synchronization overhead.
+                </li>
+            </ol>
+        </section>
+
+        <section id="goals-and-deliverables">
+            <h2>Goals and Deliverables</h2>
+
+            <h3>Original Goals and Deliverables</h3>
+            <p>Our primary goal was to parallelize both the BFS and DFS phases of Dinic's algorithm using OpenMP for shared memory and MPI for distributed memory systems. We aimed to implement efficient parallel strategies for each phase, optimizing for both performance and scalability.</p>
+
+            <p>The original deliverables included:</p>
+            <ul>
+                <li><strong>OpenMP Implementation and Optimization:</strong> Complete a parallel version of Dinic's algorithm using OpenMP, minimizing synchronization overhead and improving data locality, with performance evaluation on GHC machines at CMU.</li>
+                <li><strong>MPI Implementation:</strong> Develop a robust and efficient MPI implementation of Dinic's algorithm, focusing on effective inter-process communication, and evaluate its scalability on PSC machines with increasing node counts.</li>
+                <li><strong>Performance Analysis:</strong> Conduct a detailed analysis comparing OpenMP and MPI implementations, including speedup, cache misses, memory bandwidth utilization, and synchronization overhead.</li>
+            </ul>
+
+            <p>Stretch goals included exploring extensive MPI optimizations (e.g., non-blocking communication and load balancing) and implementing Dinic's algorithm on a GPU using CUDA to explore performance gains on massively parallel architectures.</p>
+
+            <h3>Progress and Adjusted Goals</h3>
+            <p>We have made significant progress toward our original goals, particularly with the BFS phase. However, the DFS phase has proven challenging to parallelize effectively due to its dependency on capacity updates during flow computation, which limits opportunities for parallel execution.</p>
+
+            <p><strong>Achievements So Far:</strong></p>
+            <ul>
+                <li>Achieved measurable speedup in the BFS phase using OpenMP, with scalability analysis across multiple thread counts.</li>
+                <li>Began exploring MPI-based parallelization of BFS, focusing on 1D decomposition and evaluating communication strategies.</li>
+                <li>Conducted performance analysis of the BFS and DFS phases independently, identifying key bottlenecks in the DFS phase.</li>
+            </ul>
+
+            <p><strong>Updated Plan:</strong></p>
+            <ul>
+                <li><strong>Primary Focus:</strong> Complete and optimize both 1D and 2D decompositions for BFS using MPI, with comparative analysis of communication strategies (e.g., <code>MPI_Alltoall</code> vs. point-to-point communication).</li>
+                <li><strong>DFS in MPI:</strong> If time permits, begin parallelizing the DFS phase in MPI, prioritizing correctness and initial scalability analysis.</li>
+                <li><strong>Performance Analysis:</strong> Expand the analysis to include performance on networks with varying sizes, densities, and models, and evaluate the impact on speedup and scalability.</li>
+            </ul>
+
+            <h3>Issues and Concerns</h3>
+            <p><strong>Key Concerns:</strong></p>
+            <ul>
+                <li><strong>DFS Phase Parallelization:</strong> The dependency on capacity updates during flow computation in the DFS phase introduces sequential bottlenecks, making effective parallelization challenging. This remains a significant concern for both OpenMP and MPI implementations.</li>
+                <li><strong>DFS in MPI:</strong> We have yet to determine an effective decomposition strategy for the DFS phase in MPI. Balancing work across processes while minimizing communication overhead will be critical but is currently unresolved.</li>
+            </ul>
+
+            <p><strong>Remaining Unknowns:</strong></p>
+            <ul>
+                <li><strong>MPI Communication Overhead:</strong> While communication overhead in BFS may pose challenges, its impact is unclear until further testing with strategies like <code>MPI_Alltoall</code> and point-to-point communication.</li>
+                <li><strong>CUDA Implementation:</strong> As a stretch goal, the feasibility of implementing BFS and DFS on a GPU remains uncertain, especially given the learning curve and the time constraints of the project.</li>
+            </ul>
+
+            <p>At this stage, our main concerns center on parallelizing the DFS phase effectively and evaluating MPI strategies. We aim to address these challenges while continuing progress on BFS optimizations and other deliverables.</p>
+
+            <h3>Stretch Goals</h3>
+            <ul>
+                <li><strong>Extensive MPI Optimizations:</strong> Explore advanced strategies such as non-blocking communication and optimized load balancing.</li>
+                <li><strong>GPU Implementation:</strong> Begin a CUDA implementation of Dinic's algorithm to compare performance with CPU-based approaches, if time allows.</li>
+            </ul>
+
+            <h3>Plan for Poster Session</h3>
+            <p>For the poster session, we plan to showcase:</p>
+            <ul>
+                <li><strong>Performance Metrics:</strong> Detailed metrics, including speedup, cache misses, memory bandwidth utilization, and the impact of synchronization, across various configurations (e.g., core counts and node setups).</li>
+                <li><strong>Comparative Analysis:</strong> Highlight differences in performance and scalability between OpenMP and MPI implementations, with insights into their applicability to different graph types.</li>
+                <li><strong>Live Demo:</strong> If feasible, provide a real-time demonstration of performance improvements on sample graph inputs.</li>
+            </ul>
+
+            <p>By adjusting our focus and emphasizing BFS optimizations, we aim to deliver a robust analysis of parallelization strategies for Dinic's algorithm while addressing the challenges encountered in DFS parallelization.</p>
+        </section>
+
+        <section id="adjusted-schedule">
+            <h2>Adjusted Schedule</h2>
+
+            <h3>Completed Work (Weeks 1-3)</h3>
+
+            <h4>Week 1 (Nov 10 - Nov 16)</h4>
+            <ul>
+                <li>Implemented the sequential version of Dinic's algorithm.
+                    <ul>
+                        <li>Reviewed pseudocode and lecture notes from 15-451 to ensure a thorough understanding.</li>
+                        <li>Implemented and tested the sequential version to confirm correctness.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Completed a functional sequential implementation that passed initial test cases.</li>
+            </ul>
+
+            <h4>Week 2 (Nov 17 - Nov 23)</h4>
+            <ul>
+                <li>Began parallelizing the BFS phase using OpenMP.
+                    <ul>
+                        <li>Identified parallelizable components and added OpenMP directives.</li>
+                        <li>Focused on constructing the layer graph in parallel while minimizing synchronization overhead.</li>
+                        <li>Analyzed performance on GHC machines for speedup and cache efficiency.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Achieved measurable speedup in the BFS phase compared to the sequential version.</li>
+            </ul>
+
+            <h4>Week 3 (Nov 24 - Nov 30)</h4>
+            <ul>
+                <li>Parallelized the DFS phase using OpenMP.
+                    <ul>
+                        <li>Implemented parallel path exploration for the blocking flow.</li>
+                        <li>Optimized synchronization to reduce contention and improve scalability.</li>
+                        <li>Conducted performance analysis for the BFS and DFS phases of the OpenMP implementation separately.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Submitted the milestone report, showcasing OpenMP results and preliminary optimizations.</li>
+            </ul>
+
+            <h3>Upcoming Work (Weeks 4-5)</h3>
+
+            <h4>Week 4 (Dec 1 - Dec 7)</h4>
+            <ul>
+                <li>BFS in MPI with 1D decomposition:
+                    <ul>
+                        <li>Implement BFS using MPI with a 1D decomposition strategy.</li>
+                        <li>Compare communication techniques: <code>MPI_Alltoall</code> vs. point-to-point communication.</li>
+                        <li>Analyze scalability and performance of each method.</li>
+                    </ul>
+                </li>
+                <li>BFS in MPI with 2D decomposition:
+                    <ul>
+                        <li>Explore and implement a 2D decomposition approach for BFS.</li>
+                        <li>Finalize and optimize the 2D decomposition BFS implementation.</li>
+                        <li>Compare performance metrics between 1D and 2D decomposition strategies.</li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Complete and validate both the 1D and 2D decomposition BFS implementations with comparative performance analysis.</li>
+            </ul>
+
+            <h4>Week 5 (Dec 8 - Dec 13)</h4>
+            <ul>
+                <li>DFS (Blocking Flow) in MPI:
+                    <ul>
+                        <li>Begin implementing the DFS phase for the blocking flow using MPI.</li>
+                        <li>Focus on initial correctness and scalability analysis.</li>
+                    </ul>
+                </li>
+                <li>Poster Preparation and Analysis:
+                    <ul>
+                        <li>Conduct a comprehensive performance analysis, comparing sequential, OpenMP, and MPI implementations.</li>
+                        <li>Prepare for the poster session:
+                            <ul>
+                                <li>Compile speedup graphs, communication overhead analysis, and scalability results.</li>
+                                <li>Design poster with key findings, performance insights, and potential live demos.</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li><strong>Milestone:</strong> Finalize the poster content and submit materials for the poster session (Dec 9 - Dec 13).</li>
+            </ul>
+
+            <h4>Final Week (Dec 14 - Dec 15)</h4>
+            <ul>
+                <li>Project Wrap-Up:
+                    <ul>
+                        <li>Integrate all findings into the final report.</li>
+                        <li>Emphasize key results, challenges, and insights from BFS and DFS parallelizations.</li>
+                        <li>Submit the final project report by Dec 15.</li>
+                    </ul>
+                </li>
+            </ul>
+        </section>
+
+        <footer>
+            <p>&copy; 2024 Connor Mowry & Wenqi Deng</p>
+        </footer>
+    </div>
+</body>
+</html>
